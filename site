@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Review Sentiment Sampler</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --accent: #22d3ee;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --neutral: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      background: radial-gradient(1200px 800px at 80% -10%, rgba(34,211,238,0.12), transparent 60%),
+                  radial-gradient(1000px 700px at -10% 110%, rgba(99,102,241,0.12), transparent 60%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    .app {
+      width: min(920px, 92vw);
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow:
+        0 20px 60px rgba(0,0,0,0.35),
+        inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(6px);
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px;
+    }
+    .title {
+      display: flex; align-items: center; gap: 12px;
+      font-weight: 700; letter-spacing: 0.3px; font-size: 1.25rem;
+    }
+    .title .badge {
+      font-size: 0.75rem; padding: 4px 8px; border-radius: 999px;
+      background: rgba(34,211,238,0.12); color: var(--accent);
+      border: 1px solid rgba(34,211,238,0.25);
+    }
+    .controls {
+      display: grid; grid-template-columns: 1fr auto; gap: 10px;
+    }
+    .input-wrap {
+      position: relative;
+    }
+    .input-wrap i {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--muted); font-size: 0.95rem;
+    }
+    input[type="password"]{
+      width: 100%; padding: 12px 42px 12px 36px; border-radius: 12px;
+      background: #0b1220; border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text); outline: none;
+    }
+    input::placeholder { color: #6b7280; }
+    button {
+      padding: 12px 16px; border-radius: 12px; border: none; cursor: pointer;
+      background: linear-gradient(180deg, #22d3ee, #06b6d4);
+      color: #06202a; font-weight: 700;
+      box-shadow: 0 8px 24px rgba(6,182,212,0.35);
+    }
+    button:disabled {
+      opacity: 0.6; cursor: not-allowed; box-shadow: none;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 18px;
+      margin-top: 16px;
+    }
+    .row {
+      display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center;
+    }
+    .label {
+      font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .review {
+      font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap;
+    }
+    .sentiment {
+      display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+    }
+    .sentiment .icon {
+      font-size: 1.6rem;
+    }
+    .sentiment.positive .icon { color: var(--good); }
+    .sentiment.negative .icon { color: var(--bad); }
+    .sentiment.neutral .icon { color: var(--neutral); }
+    .muted { color: var(--muted); font-size: 0.95rem; }
+    .footer {
+      display: flex; justify-content: space-between; align-items: center; margin-top: 14px;
+      font-size: 0.85rem; color: var(--muted);
+    }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.02);
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; }
+    .small { font-size: 0.85rem; }
+    .grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px;
+    }
+    @media (max-width: 780px){
+      .controls { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+    .hidd
