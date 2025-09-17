@@ -122,4 +122,57 @@
       .controls { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
     }
-    .hidd
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="title">
+        <i class="fa-solid fa-magnifying-glass-chart"></i>
+        Review Sentiment Sampler
+        <span class="badge">Hugging Face · siebert/sentiment-roberta-large-english</span>
+      </div>
+      <div class="status" id="loadStatus">
+        <i class="fa-solid fa-database"></i>
+        <span class="small">Loading reviews…</span>
+      </div>
+    </header>
+
+    <section class="controls">
+      <div class="input-wrap">
+        <i class="fa-solid fa-key"></i>
+        <input id="tokenInput" type="password" placeholder="Optional: Hugging Face API token (for higher rate limits)"/>
+      </div>
+      <button id="analyzeBtn" disabled>
+        <i class="fa-solid fa-shuffle"></i> Analyze Random Review
+      </button>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <div class="label">Selected review</div>
+        <div id="reviewText" class="review muted">No review selected yet.</div>
+      </div>
+      <div class="card">
+        <div class="label">Sentiment</div>
+        <div id="sentimentBox" class="sentiment neutral">
+          <span class="icon"><i class="fa-solid fa-circle-question"></i></span>
+          <span class="mono" id="sentimentLabel">Neutral</span>
+          <span class="mono" id="sentimentScore" title="Model confidence score">(—)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Info</div>
+      <div class="footer">
+        <div id="reviewCount" class="small">—</div>
+        <div class="small">Uses Papa Parse (TSV) · Vanilla JS · GitHub Pages–ready</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
