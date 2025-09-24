@@ -1,12 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!--
+    Meta & head setup:
+    - UTF-8 charset
+    - Responsive viewport
+    - Page title
+    - Font Awesome for icons
+    - Papa Parse for CSV/TSV parsing in the browser
+    - Embedded CSS styles for the entire app
+  -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Review Sentiment Sampler</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
   <style>
+    /* -----------------------------
+       Design tokens / CSS variables
+       ----------------------------- */
     :root {
       --bg: #0f172a;
       --card: #111827;
@@ -17,7 +30,15 @@
       --bad: #ef4444;
       --neutral: #f59e0b;
     }
+
+    /* Basic reset */
     * { box-sizing: border-box; }
+
+    /* -----------------------------
+       Page background & layout
+       - Full-viewport grid centers .app
+       - Subtle radial gradients for depth
+       ----------------------------- */
     body {
       margin: 0; padding: 0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
@@ -29,6 +50,10 @@
       display: grid;
       place-items: center;
     }
+
+    /* -----------------------------
+       App container (glass card)
+       ----------------------------- */
     .app {
       width: min(920px, 92vw);
       background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
@@ -40,6 +65,8 @@
         inset 0 1px 0 rgba(255,255,255,0.05);
       backdrop-filter: blur(6px);
     }
+
+    /* Header with title and status chip */
     header {
       display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px;
     }
@@ -52,6 +79,8 @@
       background: rgba(34,211,238,0.12); color: var(--accent);
       border: 1px solid rgba(34,211,238,0.25);
     }
+
+    /* Controls row: token input + analyze button */
     .controls {
       display: grid; grid-template-columns: 1fr auto; gap: 10px;
     }
@@ -68,6 +97,8 @@
       color: var(--text); outline: none;
     }
     input::placeholder { color: #6b7280; }
+
+    /* Primary action button */
     button {
       padding: 12px 16px; border-radius: 12px; border: none; cursor: pointer;
       background: linear-gradient(180deg, #22d3ee, #06b6d4);
@@ -77,6 +108,8 @@
     button:disabled {
       opacity: 0.6; cursor: not-allowed; box-shadow: none;
     }
+
+    /* Content cards */
     .card {
       background: var(--card);
       border: 1px solid rgba(255,255,255,0.08);
@@ -84,25 +117,36 @@
       padding: 18px;
       margin-top: 16px;
     }
+
+    /* Generic row layout (unused currently for review/sentiment pair) */
     .row {
       display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center;
     }
+
+    /* Section labels / captions */
     .label {
       font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
       margin-bottom: 6px;
     }
+
+    /* Review text styling */
     .review {
       font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap;
     }
+
+    /* Sentiment pill w/ icon + label + score, aligned right */
     .sentiment {
       display: flex; align-items: center; gap: 10px; justify-content: flex-end;
     }
     .sentiment .icon {
       font-size: 1.6rem;
     }
+    /* Color the icon by sentiment type */
     .sentiment.positive .icon { color: var(--good); }
     .sentiment.negative .icon { color: var(--bad); }
     .sentiment.neutral .icon { color: var(--neutral); }
+
+    /* Utility classes */
     .muted { color: var(--muted); font-size: 0.95rem; }
     .footer {
       display: flex; justify-content: space-between; align-items: center; margin-top: 14px;
@@ -115,9 +159,13 @@
     }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; }
     .small { font-size: 0.85rem; }
+
+    /* Two-column grid: left=review, right=sentiment summary */
     .grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px;
     }
+
+    /* Responsive: stack columns & controls on narrow screens */
     @media (max-width: 780px){
       .controls { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
@@ -126,36 +174,58 @@
   </style>
 </head>
 <body>
+  <!--
+    Main application structure:
+    - Header with title and a dynamic "loading" status
+    - Controls for optional HF token and a button to sample/analyze a review
+    - Two info cards (selected review + sentiment result)
+    - Footer/info card (review count, tech stack hint)
+  -->
   <main class="app">
     <header>
       <div class="title">
         <i class="fa-solid fa-magnifying-glass-chart"></i>
         Review Sentiment Sampler
+        <!-- Model badge indicates which HF model is used client-side via API -->
         <span class="badge">Hugging Face · siebert/sentiment-roberta-large-english</span>
       </div>
+      <!-- Dynamic status area (e.g., "Loading reviews…") -->
       <div class="status" id="loadStatus">
         <i class="fa-solid fa-database"></i>
         <span class="small">Loading reviews…</span>
       </div>
     </header>
 
+    <!-- Controls: optional HF token + action button -->
     <section class="controls">
       <div class="input-wrap">
         <i class="fa-solid fa-key"></i>
+        <!--
+          Optional Hugging Face API token:
+          - Allows higher rate limits when calling the inference endpoint from app.js
+        -->
         <input id="tokenInput" type="password" placeholder="Optional: Hugging Face API token (for higher rate limits)"/>
       </div>
+      <!-- Button is disabled until data is ready; enabled via app.js -->
       <button id="analyzeBtn" disabled>
         <i class="fa-solid fa-shuffle"></i> Analyze Random Review
       </button>
     </section>
 
+    <!-- Main two-column area: selected review and sentiment result -->
     <section class="grid">
       <div class="card">
         <div class="label">Selected review</div>
+        <!-- Populated with a random review's text by app.js -->
         <div id="reviewText" class="review muted">No review selected yet.</div>
       </div>
       <div class="card">
         <div class="label">Sentiment</div>
+        <!--
+          Sentiment container:
+          - app.js toggles classes .positive / .negative / .neutral
+          - Updates icon optionally, label text, and confidence score
+        -->
         <div id="sentimentBox" class="sentiment neutral">
           <span class="icon"><i class="fa-solid fa-circle-question"></i></span>
           <span class="mono" id="sentimentLabel">Neutral</span>
@@ -164,15 +234,23 @@
       </div>
     </section>
 
+    <!-- Footer/info card: review dataset count and tech notes -->
     <section class="card">
       <div class="label">Info</div>
       <div class="footer">
+        <!-- Filled with total reviews loaded (set by app.js) -->
         <div id="reviewCount" class="small">—</div>
         <div class="small">Uses Papa Parse (TSV) · Vanilla JS · GitHub Pages–ready</div>
       </div>
     </section>
   </main>
 
+  <!--
+    App logic:
+    - defers loading to ensure DOM is parsed first
+    - Responsible for: fetching/parsing TSV, wiring button,
+      sampling a review, calling HF model, updating UI state
+  -->
   <script src="./app.js" defer></script>
 </body>
 </html>
