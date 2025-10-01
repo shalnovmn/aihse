@@ -1,329 +1,83 @@
-(() => {
-  // Hugging Face Inference API endpoint for the sentiment model.
-  const HF_ENDPOINT = "https://api-inference.huggingface.co/models/siebert/sentiment-roberta-large-english";
+const tokenInput=document.getElementById("token");
+const randomBtn=document.getElementById("randomBtn");
+const sentimentBtn=document.getElementById("sentimentBtn");
+const nounsBtn=document.getElementById("nounsBtn");
+const spinner=document.getElementById("spinner");
+const errorDiv=document.getElementById("error");
+const sentimentVal=document.getElementById("sentimentVal");
+const nounsVal=document.getElementById("nounsVal");
+const reviewTextEl=document.getElementById("reviewText");
+const toggleBtn=document.getElementById("toggleBtn");
+const fullTextEl=document.getElementById("fullText");
 
-  // Cache references to all necessary DOM elements for quick access.
-  const els = {
-    token: document.getElementById("tokenInput"),          // Optional HF API token input
-    btn: document.getElementById("analyzeBtn"),            // "Analyze" button
-    review: document.getElementById("reviewText"),         // Area to display the sampled review text
-    sentimentBox: document.getElementById("sentimentBox"), // Container that changes style based on sentiment
-    sentimentLabel: document.getElementById("sentimentLabel"), // Text label for sentiment (Positive/Negative/Neutral)
-    sentimentScore: document.getElementById("sentimentScore"), // Numeric score display
-    loadStatus: document.getElementById("loadStatus"),     // Status chip (loading/ready/error)
-    reviewCount: document.getElementById("reviewCount"),   // Shows number of loaded reviews
-  };
+let reviews=[];
+let currentId=null;
+let inFlight=false;
+const cache=new Map();
+let fullTextState={full:"",truncated:"",isTruncated:false,expanded:false};
 
-  // Will hold the parsed review texts from the TSV file.
-  let reviews = [];
+function setLoading(state){
+  inFlight=state;
+  const busy=state?"true":"false";
+  [randomBtn,sentimentBtn,nounsBtn].forEach(b=>{b.disabled=state;b.setAttribute("aria-busy",busy)});
+  tokenInput.disabled=state;
+  spinner.style.display=state?"block":"none";
+}
+function setError(msg){errorDiv.textContent=msg||""}
 
-  /**
-   * Show a loading/ready message in the status chip.
-   * @param {boolean} isLoading - Whether we are loading something.
-   * @param {string} [message] - Optional custom message.
-   */
-  function setStatusLoading(isLoading, message) {
-    els.loadStatus.classList.remove("hidden");
-    els.loadStatus.querySelector("span").textContent = message || (isLoading ? "Loading reviews…" : "Ready");
+function truncateReview(t){
+  if(t.length<=1200){fullTextState={full:t,truncated:t,isTruncated:false,expanded:false};reviewTextEl.textContent=t;toggleBtn.style.display="none";return}
+  const truncated=t.slice(0,1200)+"…";
+  fullTextState={full:t,truncated,isTruncated:true,expanded:false};
+  reviewTextEl.textContent=truncated;
+  toggleBtn.textContent="Show more";
+  toggleBtn.style.display="inline-block";
+}
+toggleBtn.addEventListener("click",()=>{
+  if(!fullTextState.isTruncated)return;
+  fullTextState.expanded=!fullTextState.expanded;
+  reviewTextEl.textContent=fullTextState.expanded?fullTextState.full:fullTextState.truncated;
+  toggleBtn.textContent=fullTextState.expanded?"Show less":"Show more";
+});
+
+function iconForSentiment(s){
+  if(s==="positive")return "👍 positive";
+  if(s==="negative")return "👎 negative";
+  return "❓ neutral";
+}
+function bandForNouns(n){
+  if(n>15)return {label:"High",icon:"🟢"};
+  if(n>=6)return {label:"Medium",icon:"🟡"};
+  return {label:"Low",icon:"🔴"};
+}
+function renderAll(){
+  const sid=`${currentId}|sentiment`;
+  const nid=`${currentId}|nouns`;
+  const s=cache.get(sid);
+  const n=cache.get(nid);
+  sentimentVal.textContent=s?iconForSentiment(s.label):"❓ neutral";
+  if(n&&Number.isFinite(n.count)){
+    const b=bandForNouns(n.count);
+    nounsVal.textContent=`${n.count} ${b.icon} ${b.label}`;
+  }else{
+    nounsVal.textContent="—";
   }
+  const t=(reviews.find(r=>r.id===currentId)||{}).text||"";
+  fullTextEl.textContent=t;
+  truncateReview(t);
+}
 
-  /**
-   * Update the sentiment UI box:
-   * - apply the correct CSS class (positive/negative/neutral)
-   * - set an icon
-   * - update label and score
-   * @param {"positive"|"negative"|"neutral"} kind
-   * @param {string} label
-   * @param {number|null} score
-   */
-  function setSentimentUI(kind, label, score) {
-    // Reset any previous sentiment classes, then apply the new one.
-    els.sentimentBox.classList.remove("positive","negative","neutral");
-    els.sentimentBox.classList.add(kind);
-
-    // Swap the icon according to the sentiment kind.
-    const iconEl = els.sentimentBox.querySelector(".icon");
-    iconEl.innerHTML = kind === "positive"
-      ? '<i class="fa-solid fa-thumbs-up"></i>'
-      : kind === "negative"
-      ? '<i class="fa-solid fa-thumbs-down"></i>'
-      : '<i class="fa-solid fa-circle-question"></i>';
-
-    // Set label and score (score shown to 3 decimals if provided).
-    els.sentimentLabel.textContent = label ?? "Neutral";
-    els.sentimentScore.textContent = typeof score === "number" ? `(${score.toFixed(3)})` : "(—)";
-  }
-
-  /**
-   * Pick a random non-empty review from the loaded list.
-   * Uses a small guard loop to avoid empty/invalid rows.
-   * @returns {string|null}
-   */
-  function pickRandomReview() {
-    if (!reviews.length) return null;
-    let text = "";
-    // Avoid empty strings
-    for (let guard = 0; guard < 20 && !text; guard++) {
-      const idx = Math.floor(Math.random() * reviews.length);
-      text = (reviews[idx] || "").toString().trim();
-    }
-    return text || null;
-  }
-
-  /**
-   * Call Hugging Face Inference API to analyze the sentiment of the given text.
-   * Parses a few possible response shapes defensively and updates the UI.
-   * Throws on HTTP errors (including model warm-up or rate limit responses).
-   * @param {string} text
-   */
-  async function analyze(text) {
-    // Prepare headers; include Authorization if user provided a token.
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    };
-    const token = els.token.value.trim();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    // Send the inference request.
-    const res = await fetch(HF_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ inputs: text }),
-    });
-
-    // Graceful handling of model spin-up or rate limits
-    if (!res.ok) {
-      // Try to surface any message returned by the API to help the user.
-      let errMsg = `HTTP ${res.status}`;
-      try {
-        const problem = await res.json();
-        if (problem && (problem.error || problem.message)) {
-          errMsg += `: ${problem.error || problem.message}`;
-        }
-      } catch (_) {}
-      throw new Error(errMsg);
-    }
-
-    // Parse the response body.
-    const data = await res.json();
-    // Expected format: [[{ label: 'POSITIVE', score: number }, { label: 'NEGATIVE', score: number }]]
-    // Per requirement: parse API response [[{label:'POSITIVE', score:number}]]
-    // We'll defensively read first item of first array; if array-of-objects provided, take first element.
-    let first;
-    if (Array.isArray(data) && data.length > 0) {
-      first = Array.isArray(data[0]) ? data[0][0] : data[0];
-    }
-    const label = first?.label || "NEUTRAL";
-    const score = typeof first?.score === "number" ? first.score : null;
-
-    // Simple decision rule to map model output to UI state.
-    // If label is POSITIVE and score is high enough → "positive",
-    // if label is NEGATIVE → "negative",
-    // otherwise → "neutral".
-    if (label.toUpperCase() === "POSITIVE" && score !== null && score > 0.5) {
-      setSentimentUI("positive", "Positive", score);
-    } else if (label.toUpperCase() === "NEGATIVE") {
-      setSentimentUI("negative", "Negative", score);
-    } else {
-      setSentimentUI("neutral", "Neutral", score);
-    }
-  }
-
-  // ---------- Noun Counter (Falcon 7B Instruct) ----------
-  const FALCON_ENDPOINT = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct";
-  let nounLevelEl = null;
-
-  function ensureNounLevelEl() {
-    if (nounLevelEl) return nounLevelEl;
-    nounLevelEl = document.createElement("span");
-    nounLevelEl.id = "nounLevel";
-    nounLevelEl.style.marginLeft = "8px";
-    nounLevelEl.className = "noun-level";
-    els.sentimentScore.insertAdjacentElement("afterend", nounLevelEl);
-    return nounLevelEl;
-  }
-
-  function nounIcon(level) {
-    if (level === "high") return "🟢(High)";
-    if (level === "medium") return "🟡(Medium)";
-    if (level === "low") return "🔴(Low)";
-    return "—";
-  }
-
-  function firstLineLower(text) {
-    return String(text || "")
-      .split(/\r?\n/)[0]
-      .trim()
-      .toLowerCase();
-  }
-
-  function extractFalconText(data) {
-    if (Array.isArray(data) && data.length) {
-      if (typeof data[0] === "string") return data[0];
-      if (data[0] && typeof data[0].generated_text === "string") return data[0].generated_text;
-    }
-    if (data && typeof data.generated_text === "string") return data.generated_text;
-    return JSON.stringify(data);
-  }
-
-  async function countNouns(text) {
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-    };
-    const token = els.token.value.trim();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const prompt =
-      "Count the nouns in this review and return only High (>15), Medium (6-15), or Low (<6): " + text;
-
-    const res = await fetch(FALCON_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ inputs: prompt }),
-    });
-
-    if (!res.ok) {
-      let errMsg = `HTTP ${res.status}`;
-      try {
-        const problem = await res.json();
-        if (problem && (problem.error || problem.message)) {
-          errMsg += `: ${problem.error || problem.message}`;
-        }
-      } catch (_) {}
-      if (res.status === 402 || res.status === 429) {
-        throw new Error(errMsg + " (rate limit or payment required)");
-      }
-      throw new Error(errMsg);
-    }
-
-    const data = await res.json();
-    const raw = extractFalconText(data);
-    const line = firstLineLower(raw);
-
-    if (line.includes("high")) return "high";
-    if (line.includes("medium")) return "medium";
-    if (line.includes("low")) return "low";
-    const num = parseInt(line.match(/\d+/)?.[0] || "", 10);
-    if (!isNaN(num)) {
-      if (num > 15) return "high";
-      if (num >= 6) return "medium";
-      return "low";
-    }
-    return "unknown";
-  }
-  // ---------- End Noun Counter ----------
-
-  /**
-   * Enable the main UI after reviews are loaded.
-   * Shows "Ready" briefly and then hides the status chip.
-   */
-  function enableUI() {
-    els.btn.disabled = false;
-    setStatusLoading(false, "Ready");
-    setTimeout(() => els.loadStatus.classList.add("hidden"), 1000);
-  }
-
-  /**
-   * Display an error message in the review area and reset sentiment to neutral.
-   * @param {string} message
-   */
-  function showErrorCard(message) {
-    els.review.textContent = message;
-    els.review.classList.remove("muted");
-    setSentimentUI("neutral", "Neutral", null);
-  }
-
-  /**
-   * Initialize the app:
-   * - load and parse the TSV file with Papa Parse
-   * - extract non-empty review texts
-   * - wire up the Analyze button click handler
-   */
-  function initialize() {
-    setStatusLoading(true, "Loading reviews…");
-    // Fetch the TSV file without caching to ease iteration during development.
-    fetch("./reviews_test.tsv", { cache: "no-store" })
-      .then(resp => {
-        if (!resp.ok) throw new Error(`Failed to load reviews_test.tsv (HTTP ${resp.status})`);
-        return resp.text();
-      })
-      .then(text => {
-        // Use Papa Parse to parse TSV (tab-delimited, header row expected).
-        return new Promise((resolve, reject) => {
-          Papa.parse(text, {
-            header: true,
-            delimiter: "\t",
-            skipEmptyLines: true,
-            complete: results => resolve(results),
-            error: err => reject(err),
-          });
-        });
-      })
-      .then(results => {
-        // Extract the "text" column and filter out empty rows.
-        const rows = results?.data || [];
-        reviews = rows
-          .map(r => (r && typeof r.text !== "undefined" ? r.text : ""))
-          .filter(v => v && String(v).trim().length > 0);
-
-        if (!reviews.length) {
-          throw new Error("No reviews found. Ensure TSV has a 'text' column.");
-        }
-
-        // Display how many reviews were loaded and enable the UI.
-        els.reviewCount.textContent = `${reviews.length.toLocaleString()} reviews loaded`;
-        enableUI();
-      })
-      .catch(err => {
-        // Surface TSV loading/parsing errors to the user.
-        setStatusLoading(false, "Error");
-        showErrorCard(`Error loading TSV: ${err.message}`);
-      });
-
-    // When the user clicks Analyze:
-    // - pick a random review
-    // - show it
-    // - call the HF API
-    // - update the sentiment UI accordingly
-    els.btn.addEventListener("click", async () => {
-      const sample = pickRandomReview();
-      if (!sample) {
-        showErrorCard("No valid review found. Please check your TSV.");
-        return;
-      }
-
-      // Show the sampled review and set a temporary "Analyzing…" state.
-      els.review.textContent = sample;
-      els.review.classList.remove("muted");
-      setSentimentUI("neutral", "Analyzing…", null);
-      els.btn.disabled = true;
-
-      try {
-        await analyze(sample);
-        // --- Noun Counter: start ---
-        ensureNounLevelEl();
-        nounLevelEl.textContent = "…";
-        try {
-          const level = await countNouns(sample);
-          nounLevelEl.textContent = nounIcon(level);
-        } catch (ne) {
-          nounLevelEl.textContent = "—";
-          showErrorCard(`Noun counter error: ${ne.message}. You may retry, add a token, or wait if rate-limited.`);
-        }
-        // --- Noun Counter: end ---
-      } catch (e) {
-        // Handle API errors (e.g., rate limits, warm-up delays, invalid token).
-        setSentimentUI("neutral", "Neutral", null);
-        showErrorCard(`Analysis error: ${e.message}. You may retry, add a token, or wait if rate-limited.`);
-      } finally {
-        // Re-enable the button regardless of success/failure.
-        els.btn.disabled = false;
-      }
-    });
-  }
-
-  // Start the app after the DOM is fully loaded.
-  document.addEventListener("DOMContentLoaded", initialize);
-})();
+async function loadTSV(){
+  try{
+    const res=await fetch("reviews_test.tsv");
+    const raw=await res.text();
+    const parsed=Papa.parse(raw,{header:true,delimiter:"\t",skipEmptyLines:true});
+    const hasTextCol=Array.isArray(parsed.meta?.fields)&&parsed.meta.fields.map(f=>String(f).trim().toLowerCase()).includes("text");
+    const rows=Array.isArray(parsed.data)?parsed.data:[];
+    const cleaned=rows.filter(r=>r&&r.text&&String(r.text).trim().length>0).map((r,i)=>({id:i,text:String(r.text).trim()}));
+    if(!hasTextCol||cleaned.length===0){setError("TSV missing ‘text’ column or no rows."); [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true); return}
+    reviews=cleaned;
+    [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=false);
+    currentId=0;
+    renderAll();
+  }catch
