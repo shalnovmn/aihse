@@ -130,6 +130,91 @@
     }
   }
 
+  // ---------- Noun Counter (Falcon 7B Instruct) ----------
+  const FALCON_ENDPOINT = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct";
+  let nounLevelEl = null;
+
+  function ensureNounLevelEl() {
+    if (nounLevelEl) return nounLevelEl;
+    nounLevelEl = document.createElement("span");
+    nounLevelEl.id = "nounLevel";
+    nounLevelEl.style.marginLeft = "8px";
+    nounLevelEl.className = "noun-level";
+    els.sentimentScore.insertAdjacentElement("afterend", nounLevelEl);
+    return nounLevelEl;
+  }
+
+  function nounIcon(level) {
+    if (level === "high") return "🟢(High)";
+    if (level === "medium") return "🟡(Medium)";
+    if (level === "low") return "🔴(Low)";
+    return "—";
+  }
+
+  function firstLineLower(text) {
+    return String(text || "")
+      .split(/\r?\n/)[0]
+      .trim()
+      .toLowerCase();
+  }
+
+  function extractFalconText(data) {
+    if (Array.isArray(data) && data.length) {
+      if (typeof data[0] === "string") return data[0];
+      if (data[0] && typeof data[0].generated_text === "string") return data[0].generated_text;
+    }
+    if (data && typeof data.generated_text === "string") return data.generated_text;
+    return JSON.stringify(data);
+  }
+
+  async function countNouns(text) {
+    const headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    };
+    const token = els.token.value.trim();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const prompt =
+      "Count the nouns in this review and return only High (>15), Medium (6-15), or Low (<6): " + text;
+
+    const res = await fetch(FALCON_ENDPOINT, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ inputs: prompt }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const problem = await res.json();
+        if (problem && (problem.error || problem.message)) {
+          errMsg += `: ${problem.error || problem.message}`;
+        }
+      } catch (_) {}
+      if (res.status === 402 || res.status === 429) {
+        throw new Error(errMsg + " (rate limit or payment required)");
+      }
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    const raw = extractFalconText(data);
+    const line = firstLineLower(raw);
+
+    if (line.includes("high")) return "high";
+    if (line.includes("medium")) return "medium";
+    if (line.includes("low")) return "low";
+    const num = parseInt(line.match(/\d+/)?.[0] || "", 10);
+    if (!isNaN(num)) {
+      if (num > 15) return "high";
+      if (num >= 6) return "medium";
+      return "low";
+    }
+    return "unknown";
+  }
+  // ---------- End Noun Counter ----------
+
   /**
    * Enable the main UI after reviews are loaded.
    * Shows "Ready" briefly and then hides the status chip.
@@ -217,6 +302,17 @@
 
       try {
         await analyze(sample);
+        // --- Noun Counter: start ---
+        ensureNounLevelEl();
+        nounLevelEl.textContent = "…";
+        try {
+          const level = await countNouns(sample);
+          nounLevelEl.textContent = nounIcon(level);
+        } catch (ne) {
+          nounLevelEl.textContent = "—";
+          showErrorCard(`Noun counter error: ${ne.message}. You may retry, add a token, or wait if rate-limited.`);
+        }
+        // --- Noun Counter: end ---
       } catch (e) {
         // Handle API errors (e.g., rate limits, warm-up delays, invalid token).
         setSentimentUI("neutral", "Neutral", null);
