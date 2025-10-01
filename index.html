@@ -1,168 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Review Sentiment Sampler</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-
-  <style>
-    :root {
-      --bg: #0f172a;
-      --card: #111827;
-      --accent: #22d3ee;
-      --muted: #94a3b8;
-      --text: #e5e7eb;
-      --good: #22c55e;
-      --bad: #ef4444;
-      --neutral: #f59e0b;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
-      background: radial-gradient(1200px 800px at 80% -10%, rgba(34,211,238,0.12), transparent 60%),
-                  radial-gradient(1000px 700px at -10% 110%, rgba(99,102,241,0.12), transparent 60%),
-                  var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-    }
-    .app {
-      width: min(920px, 92vw);
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow:
-        0 20px 60px rgba(0,0,0,0.35),
-        inset 0 1px 0 rgba(255,255,255,0.05);
-      backdrop-filter: blur(6px);
-    }
-    header {
-      display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px;
-    }
-    .title {
-      display: flex; align-items: center; gap: 12px;
-      font-weight: 700; letter-spacing: 0.3px; font-size: 1.25rem;
-    }
-    .title .badge {
-      font-size: 0.75rem; padding: 4px 8px; border-radius: 999px;
-      background: rgba(34,211,238,0.12); color: var(--accent);
-      border: 1px solid rgba(34,211,238,0.25);
-    }
-    .controls {
-      display: grid; grid-template-columns: 1fr auto; gap: 10px;
-    }
-    .input-wrap { position: relative; }
-    .input-wrap i {
-      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-      color: var(--muted); font-size: 0.95rem;
-    }
-    input[type="password"]{
-      width: 100%; padding: 12px 42px 12px 36px; border-radius: 12px;
-      background: #0b1220; border: 1px solid rgba(255,255,255,0.08);
-      color: var(--text); outline: none;
-    }
-    input::placeholder { color: #6b7280; }
-    button {
-      padding: 12px 16px; border-radius: 12px; border: none; cursor: pointer;
-      background: linear-gradient(180deg, #22d3ee, #06b6d4);
-      color: #06202a; font-weight: 700;
-      box-shadow: 0 8px 24px rgba(6,182,212,0.35);
-    }
-    button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
-    .card {
-      background: var(--card);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px;
-      padding: 18px;
-      margin-top: 16px;
-    }
-    .row { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
-    .label {
-      font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .review { font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap; }
-    .sentiment { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
-    .sentiment .icon { font-size: 1.6rem; }
-    .sentiment.positive .icon { color: var(--good); }
-    .sentiment.negative .icon { color: var(--bad); }
-    .sentiment.neutral .icon { color: var(--neutral); }
-    .muted { color: var(--muted); font-size: 0.95rem; }
-    .footer {
-      display: flex; justify-content: space-between; align-items: center; margin-top: 14px;
-      font-size: 0.85rem; color: var(--muted);
-    }
-    .status {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 10px; border-radius: 10px; border: 1px dashed rgba(255,255,255,0.15);
-      background: rgba(255,255,255,0.02);
-    }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; }
-    .small { font-size: 0.85rem; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
-    /* 👇 Added for noun counter spacing */
-    .noun-level { margin-left: 8px; }
-    @media (max-width: 780px){
-      .controls { grid-template-columns: 1fr; }
-      .grid { grid-template-columns: 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review Analyzer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{--bg:#0b1020;--fg:#e6e9ef;--muted:#a6adbb;--card:#131a2e;--accent:#4f46e5;--danger:#ef4444;--ok:#10b981}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+  .wrap{max-width:840px;margin:32px auto;padding:0 16px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input[type="text"]{flex:1;min-width:260px;background:#0d1428;border:1px solid #26304d;color:var(--fg);padding:10px 12px;border-radius:10px;outline:none}
+  button{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .error{margin-top:10px;color:#fff;background:rgba(239,68,68,.14);border:1px solid var(--danger);padding:10px 12px;border-radius:10px;min-height:22px}
+  .status{display:none;margin-left:auto}
+  .card{margin-top:16px;background:var(--card);border:1px solid #26304d;border-radius:16px;padding:16px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .label{font-size:12px;color:var(--muted)}
+  .val{font-size:16px;display:flex;align-items:center;gap:8px}
+  .review{margin-top:12px;background:#0d1428;border:1px solid #26304d;border-radius:12px;padding:12px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word}
+  .toggle{margin-top:8px;background:transparent;border:0;color:#9db2ff;text-decoration:underline;cursor:pointer;padding:0;font-size:14px}
+  .sr{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
+</style>
 </head>
 <body>
-  <main class="app">
-    <header>
-      <div class="title">
-        <i class="fa-solid fa-magnifying-glass-chart"></i>
-        Review Sentiment Sampler
-        <span class="badge">Hugging Face · siebert/sentiment-roberta-large-english</span>
-      </div>
-      <div class="status" id="loadStatus">
-        <i class="fa-solid fa-database"></i>
-        <span class="small">Loading reviews…</span>
-      </div>
-    </header>
-
-    <section class="controls">
-      <div class="input-wrap">
-        <i class="fa-solid fa-key"></i>
-        <input id="tokenInput" type="password" placeholder="Optional: Hugging Face API token (for higher rate limits)"/>
-      </div>
-      <button id="analyzeBtn" disabled>
-        <i class="fa-solid fa-shuffle"></i> Analyze Random Review
-      </button>
-    </section>
-
-    <section class="grid">
-      <div class="card">
-        <div class="label">Selected review</div>
-        <div id="reviewText" class="review muted">No review selected yet.</div>
-      </div>
-      <div class="card">
+<div class="wrap">
+  <div class="row">
+    <input id="token" type="text" placeholder="Hugging Face token (optional)">
+    <button id="randomBtn" aria-busy="false">Select Random Review</button>
+    <button id="sentimentBtn" aria-busy="false">Analyze Sentiment</button>
+    <button id="nounsBtn" aria-busy="false">Count Nouns</button>
+    <div id="spinner" class="status" role="status" aria-live="polite"><i class="fa-solid fa-spinner fa-spin"></i></div>
+  </div>
+  <div id="error" class="error"></div>
+  <div class="card">
+    <div class="grid">
+      <div>
         <div class="label">Sentiment</div>
-        <div id="sentimentBox" class="sentiment neutral">
-          <span class="icon"><i class="fa-solid fa-circle-question"></i></span>
-          <span class="mono" id="sentimentLabel">Neutral</span>
-          <span class="mono" id="sentimentScore" title="Model confidence score">(—)</span>
-          <!-- 👇 Added visible placeholder for noun counter -->
-          <span class="mono noun-level" id="nounLevel" title="Noun count level">—</span>
-        </div>
+        <div id="sentimentVal" class="val">❓ neutral</div>
       </div>
-    </section>
-
-    <section class="card">
-      <div class="label">Info</div>
-      <div class="footer">
-        <div id="reviewCount" class="small">—</div>
-        <div class="small">Uses Papa Parse (TSV) · Vanilla JS · GitHub Pages–ready</div>
+      <div>
+        <div class="label">Nouns</div>
+        <div id="nounsVal" class="val">—</div>
       </div>
-    </section>
-  </main>
-
-  <script src="./app.js" defer></script>
+    </div>
+    <div class="label" style="margin-top:12px">Review</div>
+    <div id="reviewText" class="review"></div>
+    <button id="toggleBtn" class="toggle" style="display:none">Show more</button>
+    <span id="fullText" class="sr"></span>
+  </div>
+</div>
+<script defer src="app.js"></script>
 </body>
 </html>
