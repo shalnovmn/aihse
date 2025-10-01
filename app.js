@@ -9,204 +9,27 @@ const nounsVal=document.getElementById("nounsVal");
 const reviewTextEl=document.getElementById("reviewText");
 const toggleBtn=document.getElementById("toggleBtn");
 const fullTextEl=document.getElementById("fullText");
-
 let reviews=[];
 let currentId=null;
 let inFlight=false;
 const cache=new Map();
 let fullTextState={full:"",truncated:"",isTruncated:false,expanded:false};
-
-function setLoading(state){
-  inFlight=state;
-  const busy=state?"true":"false";
-  [randomBtn,sentimentBtn,nounsBtn].forEach(b=>{b.disabled=state;b.setAttribute("aria-busy",busy)});
-  tokenInput.disabled=state;
-  spinner.style.display=state?"block":"none";
-}
-function setError(msg){errorDiv.textContent=msg||""}
-
-function truncateReview(t){
-  if(t.length<=1200){fullTextState={full:t,truncated:t,isTruncated:false,expanded:false};reviewTextEl.textContent=t;toggleBtn.style.display="none";return}
-  const truncated=t.slice(0,1200)+"…";
-  fullTextState={full:t,truncated,isTruncated:true,expanded:false};
-  reviewTextEl.textContent=truncated;
-  toggleBtn.textContent="Show more";
-  toggleBtn.style.display="inline-block";
-}
-toggleBtn.addEventListener("click",()=>{
-  if(!fullTextState.isTruncated)return;
-  fullTextState.expanded=!fullTextState.expanded;
-  reviewTextEl.textContent=fullTextState.expanded?fullTextState.full:fullTextState.truncated;
-  toggleBtn.textContent=fullTextState.expanded?"Show less":"Show more";
-});
-
-function iconForSentiment(s){
-  if(s==="positive")return "👍 positive";
-  if(s==="negative")return "👎 negative";
-  return "❓ neutral";
-}
-function bandForNouns(n){
-  if(n>15)return {label:"High",icon:"🟢"};
-  if(n>=6)return {label:"Medium",icon:"🟡"};
-  return {label:"Low",icon:"🔴"};
-}
-function renderAll(){
-  const sid=`${currentId}|sentiment`;
-  const nid=`${currentId}|nouns`;
-  const s=cache.get(sid);
-  const n=cache.get(nid);
-  sentimentVal.textContent=s?iconForSentiment(s.label):"❓ neutral";
-  if(n&&Number.isFinite(n.count)){
-    const b=bandForNouns(n.count);
-    nounsVal.textContent=`${n.count} ${b.icon} ${b.label}`;
-  }else{
-    nounsVal.textContent="—";
-  }
-  const t=(reviews.find(r=>r.id===currentId)||{}).text||"";
-  fullTextEl.textContent=t;
-  truncateReview(t);
-}
-
-async function loadTSV(){
-  try{
-    const res=await fetch("reviews_test.tsv");
-    const raw=await res.text();
-    const parsed=Papa.parse(raw,{header:true,delimiter:"\t",skipEmptyLines:true});
-    const hasTextCol=Array.isArray(parsed.meta?.fields)&&parsed.meta.fields.map(f=>String(f).trim().toLowerCase()).includes("text");
-    const rows=Array.isArray(parsed.data)?parsed.data:[];
-    const cleaned=rows.filter(r=>r&&r.text&&String(r.text).trim().length>0).map((r,i)=>({id:i,text:String(r.text).trim()}));
-    if(!hasTextCol||cleaned.length===0){setError("TSV missing ‘text’ column or no rows."); [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true); return}
-    reviews=cleaned;
-    [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=false);
-    currentId=0;
-    renderAll();
-  }catch(e){
-    setError("TSV missing ‘text’ column or no rows.");
-    [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true);
-  }
-}
-
-function pickRandom(){
-  if(reviews.length===0)return;
-  const idx=Math.floor(Math.random()*reviews.length);
-  currentId=reviews[idx].id;
-  renderAll();
-  setError("");
-}
-
-async function callApi(prompt){
-  const url="https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct";
-  const token=tokenInput.value.trim();
-  let attempt=0;
-  let lastErr=null;
-  while(attempt<3){
-    try{
-      const headers={"Content-Type":"application/json"};
-      if(token.length>0)headers["Authorization"]=`Bearer ${token}`;
-      const res=await fetch(url,{method:"POST",headers,body:JSON.stringify({inputs:prompt})});
-      if(res.status===402||res.status===429){setError("Model is unavailable or rate limited. Try again later or add a valid Hugging Face token."); return null}
-      if(res.status>=500){throw new Error("server")}
-      const data=await res.json().catch(()=>null);
-      if(!data||!Array.isArray(data)||!data[0]||typeof data[0].generated_text!=="string"){return null}
-      return data[0].generated_text;
-    }catch(err){
-      lastErr=err;
-      if(attempt>=2)break;
-      const delay=(attempt===0)?800:1600;
-      await new Promise(r=>setTimeout(r,delay));
-      attempt++;
-    }
-  }
-  return null;
-}
-
-function firstLine(s){
-  if(typeof s!=="string")return "";
-  const lines=s.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-  return lines[0]||"";
-}
-
-function sentimentFallback(text){
-  const pos=["good","great","excellent","love","amazing","awesome","perfect","nice","happy","recommend","refreshing","best","wonderful"];
-  const neg=["bad","poor","terrible","hate","awful","worst","disappoint","greasy","gross","broken","refund","slow","noisy"];
-  const toks=String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);
-  let score=0;
-  for(const t of toks){if(pos.includes(t))score++; if(neg.includes(t))score--}
-  if(score>0)return "positive";
-  if(score<0)return "negative";
-  return "neutral";
-}
-
-function nounsFallback(text){
-  const s=String(text).toLowerCase().replace(/[^a-z]+/g," ");
-  const stop=new Set(["a","an","the","of","in","on","for","to","with","at","from","by","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","can","could","should","and","or","as","that","this","these","those","it","its","he","she","they","we","them","his","her","their","our","you","your","i","me","my","mine"]);
-  const endings=["ing","ed","’s","'s"];
-  const tokens=s.split(/\s+/).filter(Boolean);
-  let count=0;
-  for(const t of tokens){
-    if(t.length<2)continue;
-    if(stop.has(t))continue;
-    if(endings.some(e=>t.endsWith(e)))continue;
-    count++;
-  }
-  return count;
-}
-
-async function handleSentiment(){
-  if(inFlight||currentId===null)return;
-  const key=`${currentId}|sentiment`;
-  const cached=cache.get(key);
-  if(cached){renderAll();return}
-  const text=(reviews.find(r=>r.id===currentId)||{}).text||"";
-  const prompt=`Classify the following product review as one of: positive, negative, neutral. Reply with EXACTLY one word in lowercase: positive|negative|neutral. Do not add punctuation or extra text. Review:\n${text}`;
-  setLoading(true); setError("");
-  try{
-    const out=await callApi(prompt);
-    let label;
-    if(out){
-      const line=firstLine(out).toLowerCase();
-      if(line==="positive"||line==="negative"||line==="neutral"){label=line}else{label="neutral"}
-    }else{
-      label=sentimentFallback(text);
-    }
-    cache.set(key,{label});
-    renderAll();
-    setError("");
-  }finally{
-    setLoading(false);
-  }
-}
-
-async function handleNouns(){
-  if(inFlight||currentId===null)return;
-  const key=`${currentId}|nouns`;
-  const cached=cache.get(key);
-  if(cached){renderAll();return}
-  const text=(reviews.find(r=>r.id===currentId)||{}).text||"";
-  const prompt=`Read the review and count how many common nouns it contains (singular or plural). Reply with ONLY the integer number, no words, no punctuation. If unsure, give your best estimate. Review:\n${text}`;
-  setLoading(true); setError("");
-  try{
-    const out=await callApi(prompt);
-    let count;
-    if(out){
-      const line=firstLine(out);
-      const m=line.match(/-?\d+/);
-      const n=m?parseInt(m[0],10):NaN;
-      if(Number.isFinite(n)&&n>=0){count=n}else{count=nounsFallback(text)}
-    }else{
-      count=nounsFallback(text);
-    }
-    cache.set(key,{count});
-    renderAll();
-    setError("");
-  }finally{
-    setLoading(false);
-  }
-}
-
+function setLoading(state){inFlight=state;const b=state?"true":"false";[randomBtn,sentimentBtn,nounsBtn].forEach(x=>{x.disabled=state;x.setAttribute("aria-busy",b)});tokenInput.disabled=state;spinner.style.display=state?"block":"none"}
+function setError(m){errorDiv.textContent=m||""}
+function truncateReview(t){if(t.length<=1200){fullTextState={full:t,truncated:t,isTruncated:false,expanded:false};reviewTextEl.textContent=t;toggleBtn.style.display="none";return}const tr=t.slice(0,1200)+"…";fullTextState={full:t,truncated:tr,isTruncated:true,expanded:false};reviewTextEl.textContent=tr;toggleBtn.textContent="Show more";toggleBtn.style.display="inline-block"}
+toggleBtn.addEventListener("click",()=>{if(!fullTextState.isTruncated)return;fullTextState.expanded=!fullTextState.expanded;reviewTextEl.textContent=fullTextState.expanded?fullTextState.full:fullTextState.truncated;toggleBtn.textContent=fullTextState.expanded?"Show less":"Show more"});
+function iconForSentiment(s){if(s==="positive")return"👍 positive";if(s==="negative")return"👎 negative";return"❓ neutral"}
+function bandForNouns(n){if(n>15)return{label:"High",icon:"🟢"};if(n>=6)return{label:"Medium",icon:"🟡"};return{label:"Low",icon:"🔴"}}
+function renderAll(){const s=cache.get(`${currentId}|sentiment`);const n=cache.get(`${currentId}|nouns`);sentimentVal.textContent=s?iconForSentiment(s.label):"❓ neutral";if(n&&Number.isFinite(n.count)){const b=bandForNouns(n.count);nounsVal.textContent=`${n.count} ${b.icon} ${b.label}`}else{nounsVal.textContent="—"}const t=(reviews.find(r=>r.id===currentId)||{}).text||"";fullTextEl.textContent=t;truncateReview(t);setError("")}
+async function loadTSV(){try{const res=await fetch("reviews_test.tsv");const raw=await res.text();const parsed=Papa.parse(raw,{header:true,delimiter:"\t",skipEmptyLines:true});const hasTextCol=Array.isArray(parsed.meta?.fields)&&parsed.meta.fields.map(f=>String(f).trim().toLowerCase()).includes("text");const rows=Array.isArray(parsed.data)?parsed.data:[];const cleaned=rows.filter(r=>r&&r.text&&String(r.text).trim().length>0).map((r,i)=>({id:i,text:String(r.text).trim()}));if(!hasTextCol||cleaned.length===0){setError("TSV missing ‘text’ column or no rows.");return}reviews=cleaned;currentId=0;renderAll()}catch(e){setError("TSV missing ‘text’ column or no rows.")}}
+function pickRandom(){if(reviews.length===0){setError("TSV missing ‘text’ column or no rows.");return}const idx=Math.floor(Math.random()*reviews.length);currentId=reviews[idx].id;renderAll()}
+async function callApi(prompt){const url="https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct";const token=tokenInput.value.trim();let attempt=0;while(attempt<3){try{const headers={"Content-Type":"application/json"};if(token.length>0)headers.Authorization=`Bearer ${token}`;const res=await fetch(url,{method:"POST",headers,body:JSON.stringify({inputs:prompt})});if(res.status===402||res.status===429){setError("Model is unavailable or rate limited. Try again later or add a valid Hugging Face token.");return null}if(res.status>=500)throw new Error("server");const data=await res.json().catch(()=>null);if(!data||!Array.isArray(data)||!data[0]||typeof data[0].generated_text!=="string")return null;return data[0].generated_text}catch(err){if(attempt>=2)break;await new Promise(r=>setTimeout(r,attempt===0?800:1600));attempt++}}return null}
+function firstLine(s){if(typeof s!=="string")return"";const lines=s.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);return lines[0]||""}
+function sentimentFallback(text){const pos=["good","great","excellent","love","amazing","awesome","perfect","nice","happy","recommend","refreshing","best","wonderful"];const neg=["bad","poor","terrible","hate","awful","worst","disappoint","greasy","gross","broken","refund","slow","noisy"];const toks=String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);let score=0;for(const t of toks){if(pos.includes(t))score++;if(neg.includes(t))score--}if(score>0)return"positive";if(score<0)return"negative";return"neutral"}
+function nounsFallback(text){const s=String(text).toLowerCase().replace(/[^a-z]+/g," ");const stop=new Set(["a","an","the","of","in","on","for","to","with","at","from","by","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","can","could","should","and","or","as","that","this","these","those","it","its","he","she","they","we","them","his","her","their","our","you","your","i","me","my","mine"]);const endings=["ing","ed","’s","'s"];const tokens=s.split(/\s+/).filter(Boolean);let count=0;for(const t of tokens){if(t.length<2)continue;if(stop.has(t))continue;if(endings.some(e=>t.endsWith(e)))continue;count++}return count}
+async function handleSentiment(){if(inFlight||currentId===null)return;const key=`${currentId}|sentiment`;if(cache.get(key)){renderAll();return}const text=(reviews.find(r=>r.id===currentId)||{}).text||"";const prompt=`Classify the following product review as one of: positive, negative, neutral. Reply with EXACTLY one word in lowercase: positive|negative|neutral. Do not add punctuation or extra text. Review:\n${text}`;setLoading(true);setError("");try{const out=await callApi(prompt);let label;if(out){const line=firstLine(out).toLowerCase();if(line==="positive"||line==="negative"||line==="neutral"){label=line}else{label="neutral"}}else{label=sentimentFallback(text)}cache.set(key,{label});renderAll();setError("")}finally{setLoading(false)}}
+async function handleNouns(){if(inFlight||currentId===null)return;const key=`${currentId}|nouns`;if(cache.get(key)){renderAll();return}const text=(reviews.find(r=>r.id===currentId)||{}).text||"";const prompt=`Read the review and count how many common nouns it contains (singular or plural). Reply with ONLY the integer number, no words, no punctuation. If unsure, give your best estimate. Review:\n${text}`;setLoading(true);setError("");try{const out=await callApi(prompt);let count;if(out){const line=firstLine(out);const m=line.match(/-?\d+/);const n=m?parseInt(m[0],10):NaN;if(Number.isFinite(n)&&n>=0){count=n}else{count=nounsFallback(text)}}else{count=nounsFallback(text)}cache.set(key,{count});renderAll();setError("")}finally{setLoading(false)}}
 randomBtn.addEventListener("click",pickRandom);
 sentimentBtn.addEventListener("click",handleSentiment);
 nounsBtn.addEventListener("click",handleNouns);
-
-[randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true);
 loadTSV();
