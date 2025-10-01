@@ -80,4 +80,133 @@ async function loadTSV(){
     [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=false);
     currentId=0;
     renderAll();
-  }catch
+  }catch(e){
+    setError("TSV missing ‘text’ column or no rows.");
+    [randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true);
+  }
+}
+
+function pickRandom(){
+  if(reviews.length===0)return;
+  const idx=Math.floor(Math.random()*reviews.length);
+  currentId=reviews[idx].id;
+  renderAll();
+  setError("");
+}
+
+async function callApi(prompt){
+  const url="https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct";
+  const token=tokenInput.value.trim();
+  let attempt=0;
+  let lastErr=null;
+  while(attempt<3){
+    try{
+      const headers={"Content-Type":"application/json"};
+      if(token.length>0)headers["Authorization"]=`Bearer ${token}`;
+      const res=await fetch(url,{method:"POST",headers,body:JSON.stringify({inputs:prompt})});
+      if(res.status===402||res.status===429){setError("Model is unavailable or rate limited. Try again later or add a valid Hugging Face token."); return null}
+      if(res.status>=500){throw new Error("server")}
+      const data=await res.json().catch(()=>null);
+      if(!data||!Array.isArray(data)||!data[0]||typeof data[0].generated_text!=="string"){return null}
+      return data[0].generated_text;
+    }catch(err){
+      lastErr=err;
+      if(attempt>=2)break;
+      const delay=(attempt===0)?800:1600;
+      await new Promise(r=>setTimeout(r,delay));
+      attempt++;
+    }
+  }
+  return null;
+}
+
+function firstLine(s){
+  if(typeof s!=="string")return "";
+  const lines=s.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  return lines[0]||"";
+}
+
+function sentimentFallback(text){
+  const pos=["good","great","excellent","love","amazing","awesome","perfect","nice","happy","recommend","refreshing","best","wonderful"];
+  const neg=["bad","poor","terrible","hate","awful","worst","disappoint","greasy","gross","broken","refund","slow","noisy"];
+  const toks=String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  let score=0;
+  for(const t of toks){if(pos.includes(t))score++; if(neg.includes(t))score--}
+  if(score>0)return "positive";
+  if(score<0)return "negative";
+  return "neutral";
+}
+
+function nounsFallback(text){
+  const s=String(text).toLowerCase().replace(/[^a-z]+/g," ");
+  const stop=new Set(["a","an","the","of","in","on","for","to","with","at","from","by","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","can","could","should","and","or","as","that","this","these","those","it","its","he","she","they","we","them","his","her","their","our","you","your","i","me","my","mine"]);
+  const endings=["ing","ed","’s","'s"];
+  const tokens=s.split(/\s+/).filter(Boolean);
+  let count=0;
+  for(const t of tokens){
+    if(t.length<2)continue;
+    if(stop.has(t))continue;
+    if(endings.some(e=>t.endsWith(e)))continue;
+    count++;
+  }
+  return count;
+}
+
+async function handleSentiment(){
+  if(inFlight||currentId===null)return;
+  const key=`${currentId}|sentiment`;
+  const cached=cache.get(key);
+  if(cached){renderAll();return}
+  const text=(reviews.find(r=>r.id===currentId)||{}).text||"";
+  const prompt=`Classify the following product review as one of: positive, negative, neutral. Reply with EXACTLY one word in lowercase: positive|negative|neutral. Do not add punctuation or extra text. Review:\n${text}`;
+  setLoading(true); setError("");
+  try{
+    const out=await callApi(prompt);
+    let label;
+    if(out){
+      const line=firstLine(out).toLowerCase();
+      if(line==="positive"||line==="negative"||line==="neutral"){label=line}else{label="neutral"}
+    }else{
+      label=sentimentFallback(text);
+    }
+    cache.set(key,{label});
+    renderAll();
+    setError("");
+  }finally{
+    setLoading(false);
+  }
+}
+
+async function handleNouns(){
+  if(inFlight||currentId===null)return;
+  const key=`${currentId}|nouns`;
+  const cached=cache.get(key);
+  if(cached){renderAll();return}
+  const text=(reviews.find(r=>r.id===currentId)||{}).text||"";
+  const prompt=`Read the review and count how many common nouns it contains (singular or plural). Reply with ONLY the integer number, no words, no punctuation. If unsure, give your best estimate. Review:\n${text}`;
+  setLoading(true); setError("");
+  try{
+    const out=await callApi(prompt);
+    let count;
+    if(out){
+      const line=firstLine(out);
+      const m=line.match(/-?\d+/);
+      const n=m?parseInt(m[0],10):NaN;
+      if(Number.isFinite(n)&&n>=0){count=n}else{count=nounsFallback(text)}
+    }else{
+      count=nounsFallback(text);
+    }
+    cache.set(key,{count});
+    renderAll();
+    setError("");
+  }finally{
+    setLoading(false);
+  }
+}
+
+randomBtn.addEventListener("click",pickRandom);
+sentimentBtn.addEventListener("click",handleSentiment);
+nounsBtn.addEventListener("click",handleNouns);
+
+[randomBtn,sentimentBtn,nounsBtn].forEach(b=>b.disabled=true);
+loadTSV();
